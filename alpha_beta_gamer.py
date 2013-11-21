@@ -1,6 +1,8 @@
 from org.ggp.base.util.statemachine.implementation.prover import ProverStateMachine
 from org.ggp.base.player.gamer.statemachine import StateMachineGamer
 
+import time
+
 class PythonHeuristicGamer(StateMachineGamer):
 
     def getName(self):
@@ -10,7 +12,7 @@ class PythonHeuristicGamer(StateMachineGamer):
         print "running pre-game metagame. must finish within %d" % timeout
 
 
-    def minmax_move(self, role, state,
+    def minmax_move(self, timeout, state,
             alpha = float("-inf"), beta = float("inf"), depth = 0):
 
         #picks a move for given state,
@@ -22,11 +24,19 @@ class PythonHeuristicGamer(StateMachineGamer):
         #returns the move, and the goal value of that move for given role
 
         sm = self.getStateMachine()
+        role = self.getRole()
 
         if sm.isTerminal(state):
             return (sm.getGoal(state, role), None)
 
         my_moves = sm.getLegalMoves(state, role)
+
+        if time.time() > timeout:
+            #we're out of time. just guess at the utility.
+            print "tight for time! just assuming %r is worth %r-ish" % (my_moves[0], alpha)
+            return (alpha, my_moves[0])
+
+
 
         #instead of using min/max functions,
         #we'll loop through,
@@ -46,7 +56,7 @@ class PythonHeuristicGamer(StateMachineGamer):
 
             for total_move in total_moves:
                 next_state = sm.getNextState(state, total_move)
-                value, _ = self.minmax_move(role, next_state,
+                value, _ = self.minmax_move(timeout, next_state,
                         best_score, worst_score, depth+1)
                 worst_score = min(worst_score, value)
 
@@ -75,19 +85,24 @@ class PythonHeuristicGamer(StateMachineGamer):
                 best_score = worst_score
                 chosen_move = my_move
 
-        return (best_score, chosen_move)
+        return (best_score, chosen_move or my_moves[0])
 
 
     def stateMachineSelectMove(self, timeout):
-        print "gettin some move. must finish within %d" % timeout
+        timeout = timeout / 1000
+        start_time = time.time()
+        print "gettin some move. must finish by %d. (time nom = %d)" % (timeout, start_time)
 
         #as simple heuristic, if only one move available, take it
         moves = self.getStateMachine().getLegalMoves(self.getCurrentState(), self.getRole())
         if len(moves) == 1:
             print "only one move, chosing it"
             return moves[0]
-        r, selection = self.minmax_move(self.getRole(), self.getCurrentState())
-        print "picked %r with value %r" % (selection, r)
+        r, selection = self.minmax_move(timeout, self.getCurrentState())
+        time_remaining = int(timeout - time.time())
+        time_spent = time.time() - start_time
+        print "picked %r with value %r,took %d seconds, with %d seconds to spare" %\
+                (selection, r, time_spent, time_remaining)
         return selection
 
     def stateMachineStop(self):
