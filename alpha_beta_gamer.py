@@ -1,19 +1,13 @@
-import random
-
-from org.ggp.base.util.statemachine import MachineState
 from org.ggp.base.util.statemachine.implementation.prover import ProverStateMachine
 from org.ggp.base.player.gamer.statemachine import StateMachineGamer
 
 class PythonHeuristicGamer(StateMachineGamer):
 
-
-    def preview(self, game, timeout):
-        print "gettin some preview!"
     def getName(self):
         pass
-        
+
     def stateMachineMetaGame(self, timeout):
-        pass
+        print "running pre-game metagame. must finish within %d" % timeout
 
 
     def minmax_move(self, role, state,
@@ -83,8 +77,9 @@ class PythonHeuristicGamer(StateMachineGamer):
 
         return (best_score, chosen_move)
 
+
     def stateMachineSelectMove(self, timeout):
-        print "gettin some move"
+        print "gettin some move. must finish within %d" % timeout
 
         #as simple heuristic, if only one move available, take it
         moves = self.getStateMachine().getLegalMoves(self.getCurrentState(), self.getRole())
@@ -96,9 +91,11 @@ class PythonHeuristicGamer(StateMachineGamer):
         return selection
 
     def stateMachineStop(self):
+        print "game has stopped. final goal values: "
         pass
 
     def stateMachineAbort(self):
+        print "game has aborted."
         pass
 
     def getInitialStateMachine(self):
