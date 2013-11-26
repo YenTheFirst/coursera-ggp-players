@@ -186,7 +186,11 @@ class PythonHeuristicGamer(StateMachineGamer):
         self.timeout = timeout/1000 - 0.5
         start_time = time.time()
 
-        iterate_count = self.iterate_until_timeout()
+        try:
+            iterate_count = self.iterate_until_timeout()
+        except:
+            import traceback
+            traceback.print_exc()
 
         time_spent = time.time() - start_time
         time_remaining = timeout / 1000 - time.time()
@@ -233,7 +237,11 @@ class PythonHeuristicGamer(StateMachineGamer):
             self.root.parent = None
 
         #calculate up some new best move.
-        iterate_count = self.iterate_until_timeout()
+        try:
+            iterate_count = self.iterate_until_timeout()
+        except:
+            import traceback
+            traceback.print_exc()
 
         best_child = max(self.root.children, key = lambda c: c.utility_sum[StateNode.my_role_index])
 
