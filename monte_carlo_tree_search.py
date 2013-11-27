@@ -4,6 +4,7 @@ from org.ggp.base.player.gamer.statemachine import StateMachineGamer
 import math
 
 import time
+import traceback
 
 #represents a state of the game,
 #and it's expected utility / confidence on that utility
@@ -197,12 +198,11 @@ class PythonHeuristicGamer(StateMachineGamer):
         try:
             iterate_count = self.iterate_until_timeout()
         except:
-            import traceback
             traceback.print_exc()
 
         time_spent = time.time() - start_time
         time_remaining = timeout / 1000 - time.time()
-        print "expanded %r iterations in %0.02f seconds (%0.02f remaining). (%0.02f/s)" % (iterate_count, time_spent, time_remaining, iterate_count / time_remaining)
+        print "expanded %r iterations in %0.02f seconds (%0.02f remaining). (%0.02f/s)" % (iterate_count, time_spent, time_remaining, iterate_count / time_spent)
 
 
 
@@ -248,7 +248,6 @@ class PythonHeuristicGamer(StateMachineGamer):
         try:
             iterate_count = self.iterate_until_timeout()
         except:
-            import traceback
             traceback.print_exc()
 
         best_child = max(self.root.children, key = lambda c: c.utility_sum[StateNode.my_role_index])
@@ -260,17 +259,30 @@ class PythonHeuristicGamer(StateMachineGamer):
             best_child = max(terminal_children + [best_child], key = lambda c: c.utility_sum[StateNode.my_role_index] / c.visits)
         my_move = best_child.move[StateNode.my_role_index]
 
-        print "right now, what I think about states: "
-        for c in self.root.children:
-            print "%8d %r %r (fully explored: %r)" % (c.visits, c.move, c.selection_value, c.fully_explored)
+        try:
+            #try to print some info
+            print "right now, what I think about states: "
+            for c in self.root.children:
+                if c in self.root.maxmin_children:
+                    highlight="*"
+                else:
+                    highlight = ""
+                print "%8d %s %r %r %r (fully explored: %r)" % (
+                        c.visits, highlight, c.move,
+                        [round(sv,2) for sv in c.selection_value],
+                        [round(u/(c.visits+1),2) for u in c.utility_sum],
+                        c.fully_explored)
 
-        #print some info
-        time_spent = time.time() - start_time
-        time_remaining = timeout / 1000 - time.time()
+            #print some info
+            time_spent = time.time() - start_time
+            time_remaining = timeout / 1000 - time.time()
 
-        print "expanded %r iterations in %0.02f seconds (%0.02f remaining). (%0.02f/s)" % (iterate_count, time_spent, time_remaining, iterate_count / time_spent)
-        print "picking move %r, with expected value %0.02f" % (my_move, best_child.utility_sum[StateNode.my_role_index] / best_child.visits)
-        print "-"*20
+            print "expanded %r iterations in %0.02f seconds (%0.02f remaining). (%0.02f/s)" % (iterate_count, time_spent, time_remaining, iterate_count / time_spent)
+            print "picking move %r, with expected value %0.02f" % (my_move, best_child.utility_sum[StateNode.my_role_index] / best_child.visits)
+            print "-"*20
+        except:
+            print "EXCEPTION WITH THE STUPID DEBUG INFO"
+            traceback.print_exc()
 
         return my_move
 
