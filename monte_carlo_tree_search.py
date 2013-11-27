@@ -34,7 +34,11 @@ class StateNode(object):
 
         #holds the sum of utility values for all players
         #each player's expected utility is their sum / visits.
+        #all utilities will be normalized to [0,1], for easier use in UCB.
+        #normalization depends on the max value being 100
         self.utility_sum = [0] * len(StateNode.roles)
+        #keeps the same value, normalized to [0,1] and squared, to estimate variance
+        self.utility_sum_squared = [0] * len(StateNode.roles)
 
         #an array of utility UCBs, for each role, for this node.
         #each opponent role will try maxmin this value
@@ -67,14 +71,17 @@ class StateNode(object):
         return child_to_explore.select_to_explore()
 
     def update_selection_value(self):
-        if self.fully_explored:
-            confidence_range = 0
-        else:
-            #for now, just bump up to 100, assuming 100 is the max.
-            #if there was a legit way to normalize, that'd be great. . . 
-            confidence_range = 100 * math.sqrt(math.log(self.parent.visits+1) / self.visits)
-        self.selection_value = [util / self.visits + 3 * confidence_range
-                for util in self.utility_sum]
+        def sv(util, util_sq):
+            if self.visits == 0:
+                return float("inf")
+            if self.fully_explored:
+                confidence_range = 0
+            else:
+                variance = (util_sq / self.visits) - (util / self.visits) ** 2 + math.sqrt(2*math.log(self.parent.visits) / self.visits)
+                confidence_range = min(variance, 0.25) * (math.log(self.parent.visits+1) / self.visits)
+            return util / self.visits + confidence_range
+        self.selection_value = [sv(util, util_sq)
+                for util, util_sq in zip(self.utility_sum, self.utility_sum_squared)]
 
     def update_maxmin_children(self):
         #for each role, keep track of their value for each of their moves
@@ -152,9 +159,10 @@ class StateNode(object):
 
     def propagate_score(self, joint_score):
         self.visits += 1
-        self.utility_sum = [u + s for u,s in zip(self.utility_sum, joint_score)]
-        if self.parent is not None:
-            self.update_selection_value()
+        self.utility_sum = [u + s/100.0 for u,s in zip(self.utility_sum, joint_score)]
+        self.utility_sum_squared = [u + (s/100.0)**2 for u,s in zip(self.utility_sum_squared, joint_score)]
+        if self.children is not None:
+            [c.update_selection_value() for c in self.children]
         if not self.fully_explored:
             self.update_maxmin_children()
             self.update_fully_explored()
