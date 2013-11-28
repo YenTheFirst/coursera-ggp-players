@@ -226,6 +226,7 @@ class PythonHeuristicGamer(StateMachineGamer):
         self.root.parents = set()
 
         self.timeout = timeout/1000 - 0.5
+        self.iterate_time = 0
         start_time = time.time()
 
         try:
@@ -241,9 +242,11 @@ class PythonHeuristicGamer(StateMachineGamer):
 
     def iterate_until_timeout(self):
         iterate_count = 0
-        while time.time() < self.timeout and not self.root.fully_explored:
+        while time.time() < (self.timeout-self.iterate_time) and not self.root.fully_explored:
+            start_time = time.time()
             iterate_count += 1
             explored = iterate(self.root)
+            self.iterate_time = time.time() - start_time
         if self.root.fully_explored:
             print "fully explored to the root! now I can kick back and relax"
         return iterate_count
