@@ -1,6 +1,7 @@
 #from org.ggp.base.util.statemachine.implementation.prover import ProverStateMachine
 from org.ggp.base.util.statemachine.implementation.propnet import PropNetStateMachine
 from org.ggp.base.player.gamer.statemachine import StateMachineGamer
+import itertools
 import math
 
 import time
@@ -18,15 +19,31 @@ class StateNode(object):
     roles = None
     my_role_index = None
 
-    def __init__(self, state, parent, move):
+    #each state will be a singleton object.
+    #the state_cache will be a dict to get at it.
+    state_cache = None
+
+    @classmethod
+    def get_node(cls, state, parent):
+        #gets a node, and sets parent as a parent for the node
+        h = state.hashCode()
+        if h in cls.state_cache:
+            node = cls.state_cache[h]
+        else:
+            node = cls(state)
+            cls.state_cache[state.hashCode()] = node
+        node.parents.add(parent)
+        return node
+
+
+    def __init__(self, state):
         self.state = state
-        self.parent = parent
-        #the joint move that takes us from parent to this state
-        self.move = move
+        #parents is a list of all parents who point to us
+        self.parents = set()
 
         self.visits = 0
 
-        #children will be a list of child states.
+        #children will be a dict of move => child nodes
         #it's initialized when we're explored.
         self.children = None
 
@@ -53,6 +70,20 @@ class StateNode(object):
 
         self.fully_explored = False
 
+    def delete_except(self, to_keep):
+        if self.children is not None:
+            for child in self.children.values():
+                try:
+                    child.parents.remove(self)
+                except KeyError:
+                    print "I'm not in child? what?"
+                    print "I'm %r (%r)" % (self.state, self)
+                    print "child is %r" % child.state
+                    print "parents are %r " % child.parents
+                if len(child.parents) == 0 and child != to_keep:
+                    child.delete_except(to_keep)
+        del StateNode.state_cache[self.state.hashCode()]
+
     def select_to_explore(self):
         #looks through this node, and child nodes
         #to find which one we should expand & explore
@@ -65,7 +96,7 @@ class StateNode(object):
         #the best child to explore is the one that
         #gives us the best score
         #out of child states our opponents are likely to pick
-        child_to_explore = max(self.maxmin_children,
+        child_to_explore = max(self.maxmin_children.values(),
                 key = lambda c: c.selection_value[StateNode.my_role_index])
 
         #and get their opinion
@@ -73,13 +104,14 @@ class StateNode(object):
 
     def update_selection_value(self):
         def sv(util, util_sq):
+            parent_visits = sum(p.visits for p in self.parents)
             if self.visits == 0:
                 return float("inf")
             if self.fully_explored:
                 confidence_range = 0
             else:
-                variance = (util_sq / self.visits) - (util / self.visits) ** 2 + math.sqrt(2*math.log(self.parent.visits) / self.visits)
-                confidence_range = min(variance, 0.25) * (math.log(self.parent.visits+1) / self.visits)
+                variance = (util_sq / self.visits) - (util / self.visits) ** 2 + math.sqrt(2*math.log(parent_visits) / self.visits)
+                confidence_range = min(variance, 0.25) * (math.log(parent_visits) / self.visits)
             return util / self.visits + confidence_range
         self.selection_value = [sv(util, util_sq)
                 for util, util_sq in zip(self.utility_sum, self.utility_sum_squared)]
@@ -87,8 +119,8 @@ class StateNode(object):
     def update_maxmin_children(self):
         #for each role, keep track of their value for each of their moves
         move_vals = [{} for x in xrange(len(StateNode.roles))]
-        for child in self.children:
-            for move, score, val in zip(child.move, child.selection_value, move_vals):
+        for child_move, child in self.children.iteritems():
+            for move, score, val in zip(child_move, child.selection_value, move_vals):
                 #we only care about the minimum possible score for each move
                 #since each role is presumably playing maxmin
                 val[move] = min(score, val.get(move, float('inf')))
@@ -105,35 +137,34 @@ class StateNode(object):
         #self.maxmin_children = [c for c in self.children if c.move in joint_moves]
 
         #jython doesn't seem to have itertools.product, so for now we'll do this manually
-        self.maxmin_children = [c for c in self.children
-                if all((role_move in role_maxmin)
-                    for role_move, role_maxmin in zip(c.move, maxmin_moves))]
+        self.maxmin_children = {}
+        for child_move, child in self.children.iteritems():
+            if all((role_move in role_maxmin) for role_move, role_maxmin in zip(child_move, maxmin_moves)):
+                self.maxmin_children[child_move] = child
 
     def update_fully_explored(self):
         #we're fully explored if:
         #a.) all our children are fully explored, or
-        #b.) a fully explored child is the minmax,
-        #with at least 100 samples on each non-fully explored joint move
+        #b.) a fully explored child is the minmax
 
-        explored_count = sum(c.fully_explored for c in self.children)
+        explored_count = sum(c.fully_explored for c in self.children.values())
         if explored_count == 0:
             return
         if explored_count == len(self.children):
             #all are explored
             self.fully_explored = True
             return
+
         #else, only a subset explored
-        #do we have enough to consider being full anyway?
-        if all(c.visits >= 100 for c in self.children if not c.fully_explored):
-            #ok, calculate maxmin
-            my_move_vals = {}
-            for child in self.children:
-                my_move_vals[child] = min(child.selection_value, my_move_vals.get(child, float('inf')))
-            max_val = max(my_move_vals.values())
-            my_maxmin = [k for k,v in my_move_vals.iteritems() if v == max_val]
-            #is our minmax fully explored?
-            if any(c.fully_explored for c in my_maxmin):
-                    self.fully_explored = True
+        #ok, calculate maxmin
+        my_move_vals = {}
+        for child in self.children.values():
+            my_move_vals[child] = min(child.selection_value, my_move_vals.get(child, float('inf')))
+        max_val = max(my_move_vals.values())
+        my_maxmin = [k for k,v in my_move_vals.iteritems() if v == max_val]
+        #is our minmax fully explored?
+        if any(c.fully_explored for c in my_maxmin):
+                self.fully_explored = True
 
     def explore(self):
         sm = StateNode.state_machine
@@ -150,11 +181,11 @@ class StateNode(object):
             score = sm.getGoals(temp_state)
 
             #add children to the tree
-            self.children = [StateNode(
-                sm.getNextState(self.state, move),
-                self,
-                move)
-                for move in sm.getLegalJointMoves(self.state)]
+            self.children = {}
+            for move in sm.getLegalJointMoves(self.state):
+                next_state = sm.getNextState(self.state, move)
+                new_node = StateNode.get_node(next_state, self)
+                self.children[tuple(move)] = new_node
 
         return score
 
@@ -163,12 +194,12 @@ class StateNode(object):
         self.utility_sum = [u + s/100.0 for u,s in zip(self.utility_sum, joint_score)]
         self.utility_sum_squared = [u + (s/100.0)**2 for u,s in zip(self.utility_sum_squared, joint_score)]
         if self.children is not None:
-            [c.update_selection_value() for c in self.children]
+            [c.update_selection_value() for c in self.children.values()]
         if not self.fully_explored:
             self.update_maxmin_children()
             self.update_fully_explored()
-        if (self.parent):
-            self.parent.propagate_score(joint_score)
+        for p in self.parents:
+            p.propagate_score(joint_score)
 
 def iterate(root):
     to_explore = root.select_to_explore()
@@ -188,9 +219,11 @@ class PythonHeuristicGamer(StateMachineGamer):
         StateNode.state_machine = self.getStateMachine()
         StateNode.roles = sm.getRoles()
         StateNode.my_role_index = StateNode.roles.indexOf(self.getRole())
+        StateNode.state_cache={}
 
         init = self.getStateMachine().getInitialState()
-        self.root = StateNode(init, None, None)
+        self.root = StateNode.get_node(init, None)
+        self.root.parents = set()
 
         self.timeout = timeout/1000 - 0.5
         start_time = time.time()
@@ -210,7 +243,7 @@ class PythonHeuristicGamer(StateMachineGamer):
         iterate_count = 0
         while time.time() < self.timeout and not self.root.fully_explored:
             iterate_count += 1
-            iterate(self.root)
+            explored = iterate(self.root)
         if self.root.fully_explored:
             print "fully explored to the root! now I can kick back and relax"
         return iterate_count
@@ -226,23 +259,15 @@ class PythonHeuristicGamer(StateMachineGamer):
         most_recent_move = self.getMatch().getMostRecentMoves()
         if most_recent_move is not None:
             most_recent_move = [self.getStateMachine().getMoveFromTerm(t) for t in most_recent_move]
-            #jython doesn't have next(). joy.
-            new_root = None
-            for c in self.root.children:
-                if list(c.move) == most_recent_move:
-                    new_root = c
-                    break
+            new_root = self.root.children[tuple(most_recent_move)]
 
-            if new_root is None:
-                print "WHAAAT. was not at all expecting move %r. what's going on?" % most_recent_move
-                print "expected root moves:"
-                for c in self.root.children:
-                    print c.move, c.move == most_recent_move, [m==m2 for m,m2 in zip(c.move, most_recent_move)], type(c.move), type(most_recent_move)
             print "given joint move %r, new root is chosen, with %d/%d visits (%0.02f%%)" % (most_recent_move, new_root.visits, self.root.visits, new_root.visits * 100.0 / self.root.visits)
             #hopefully, original root is now dereferenced,
             #and can be freed from memory. hopefully, python?
+
+            self.root.delete_except(new_root)
             self.root = new_root
-            self.root.parent = None
+            self.root.parents = []
 
         #calculate up some new best move.
         try:
@@ -250,25 +275,28 @@ class PythonHeuristicGamer(StateMachineGamer):
         except:
             traceback.print_exc()
 
-        best_child = max(self.root.children, key = lambda c: c.utility_sum[StateNode.my_role_index])
+        best_move, best_child = max(self.root.children.iteritems(),
+                key = lambda (m,c): c.utility_sum[StateNode.my_role_index])
 
         #if any of our children have been calculated out to terminal
         #compare them based on win rate, and then pick the real winner
-        terminal_children = [c for c in self.root.children if c.fully_explored]
+        terminal_children = [(m,c) for m,c in self.root.children.iteritems() if c.fully_explored]
         if len(terminal_children) > 0:
-            best_child = max(terminal_children + [best_child], key = lambda c: c.utility_sum[StateNode.my_role_index] / c.visits)
-        my_move = best_child.move[StateNode.my_role_index]
+            to_consider = itertools.chain(terminal_children, [(best_move, best_child)])
+            best_move, best_child = max(to_consider, key = lambda (m,c): c.utility_sum[StateNode.my_role_index] / c.visits)
+
+        my_move = best_move[StateNode.my_role_index]
 
         try:
             #try to print some info
             print "right now, what I think about states: "
-            for c in self.root.children:
-                if c in self.root.maxmin_children:
+            for m, c in sorted(self.root.children.iteritems(), key = lambda (m,c): str(m)):
+                if m in self.root.maxmin_children:
                     highlight="*"
                 else:
                     highlight = ""
                 print "%8d %s %r %r %r (fully explored: %r)" % (
-                        c.visits, highlight, c.move,
+                        c.visits, highlight, m,
                         [round(sv,2) for sv in c.selection_value],
                         [round(u/(c.visits+1),2) for u in c.utility_sum],
                         c.fully_explored)
@@ -278,6 +306,7 @@ class PythonHeuristicGamer(StateMachineGamer):
             time_remaining = timeout / 1000 - time.time()
 
             print "expanded %r iterations in %0.02f seconds (%0.02f remaining). (%0.02f/s)" % (iterate_count, time_spent, time_remaining, iterate_count / time_spent)
+            #print "explored %d new visits. %d were repeats (%0.02f)" % (new_visits, repeat_count, repeat_count * 100.0 / iterate_count+1)
             print "picking move %r, with expected value %0.02f" % (my_move, best_child.utility_sum[StateNode.my_role_index] / best_child.visits)
             print "-"*20
         except:
