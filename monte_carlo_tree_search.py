@@ -159,7 +159,7 @@ class StateNode(object):
         #ok, calculate maxmin
         my_move_vals = {}
         for child in self.children.values():
-            my_move_vals[child] = min(child.selection_value, my_move_vals.get(child, float('inf')))
+            my_move_vals[child] = min(child.selection_value, my_move_vals.get(child, child.selection_value))
         max_val = max(my_move_vals.values())
         my_maxmin = [k for k,v in my_move_vals.iteritems() if v == max_val]
         #is our minmax fully explored?
