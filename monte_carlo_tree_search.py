@@ -123,7 +123,7 @@ class StateNode(object):
             for move, score, val in zip(child_move, child.selection_value, move_vals):
                 #we only care about the minimum possible score for each move
                 #since each role is presumably playing maxmin
-                val[move] = min(score, val.get(move, float('inf')))
+                val[move] = min(score, val.get(move, score))
 
         #get the maxmin move(s) for each player,
         #based on what the min moves are
