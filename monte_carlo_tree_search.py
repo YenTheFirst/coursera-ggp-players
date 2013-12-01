@@ -24,7 +24,7 @@ class StateNode(object):
     state_cache = None
 
     @classmethod
-    def get_node(cls, state, parent):
+    def get_node(cls, state):
         #gets a node, and sets parent as a parent for the node
         h = state.hashCode()
         if h in cls.state_cache:
@@ -32,7 +32,6 @@ class StateNode(object):
         else:
             node = cls(state)
             cls.state_cache[state.hashCode()] = node
-        node.parents.add(parent)
         return node
 
 
@@ -184,8 +183,10 @@ class StateNode(object):
             self.children = {}
             for move in sm.getLegalJointMoves(self.state):
                 next_state = sm.getNextState(self.state, move)
-                new_node = StateNode.get_node(next_state, self)
-                self.children[tuple(move)] = new_node
+                new_node = StateNode.get_node(next_state)
+                if not new_node in self.children.values():
+                    self.children[tuple(move)] = new_node
+                    new_node.parents.add(self)
 
         return score
 
@@ -222,8 +223,7 @@ class PythonHeuristicGamer(StateMachineGamer):
         StateNode.state_cache={}
 
         init = self.getStateMachine().getInitialState()
-        self.root = StateNode.get_node(init, None)
-        self.root.parents = set()
+        self.root = StateNode.get_node(init)
 
         self.timeout = timeout/1000 - 0.5
         self.iterate_time = 0
